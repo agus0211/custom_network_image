@@ -11,10 +11,7 @@ class ADNetworkImageStorage {
   final String fileName = 'ad_network_images_cache.json';
   String temporaryDirectory = '';
   Map<String, dynamic> mapData = {};
-
-  ADNetworkImageStorage() {
-    removeExpiredImage();
-  }
+  bool isAlreadyCleaned = false;
 
   /// get temporary directory
   Future<Directory> _directoryBasePath() async {
@@ -32,21 +29,21 @@ class ADNetworkImageStorage {
 
   /// read content of cache file.
   /// content may empty, so this will returning empty map object as a default.
-  Future<Map<String, dynamic>> _readFileContent() async {
+  Future _readFileContent() async {
     try {
       String filePath = await _filePath();
       File cacheFile = File(filePath);
       if (cacheFile.existsSync()) {
         final data = await cacheFile.readAsString();
-        final jsonData = jsonDecode(data);
-        mapData = jsonData;
+        mapData = jsonDecode(data);
 
-        return jsonData;
+        if (!isAlreadyCleaned) {
+          await removeExpiredImage();
+        }
       }
     } catch (_) {
       await removeAll();
     }
-    return {};
   }
 
   /// write single string cache with unique key.
@@ -56,7 +53,7 @@ class ADNetworkImageStorage {
   }) async {
     String filePath = await _filePath();
     if (mapData.isEmpty) {
-      mapData = await _readFileContent();
+      await _readFileContent();
     }
     mapData[key] = jsonEncode(content);
 
@@ -73,6 +70,9 @@ class ADNetworkImageStorage {
   Future<Map<String, dynamic>?> readItem({
     required String key,
   }) async {
+    if (mapData.isEmpty) {
+      await _readFileContent();
+    }
     String selectedItem = mapData[key] ?? '';
     if (selectedItem.isNotEmpty) {
       return jsonDecode(mapData[key]);
@@ -98,8 +98,6 @@ class ADNetworkImageStorage {
   /// removing expired images
   Future removeExpiredImage() async {
     debugPrint('-- execute removeExpiredImage --');
-    mapData = await _readFileContent();
-
     if (mapData.isNotEmpty) {
       for (MapEntry<String, dynamic> item in mapData.entries) {
         try {
@@ -111,9 +109,13 @@ class ADNetworkImageStorage {
             await removeItem(key: item.key);
             mapData.remove(item.key);
           }
-        } catch (_) {}
+        } catch (_) {
+          await removeItem(key: item.key);
+          mapData.remove(item.key);
+        }
       }
     }
+    isAlreadyCleaned = true;
   }
 
   /// removing all caches
